@@ -103,22 +103,62 @@ class HandwritingRecognitionGUI:
         if model_path and os.path.exists(model_path):
             self.load_model(model_path)
         else:
-            # 尝试加载默认模型
+            # 尝试加载默认模型（按优先级顺序）
             default_paths = [
+                # 改进模型（优先）
+                '../models/mnist_improved_best.h5',
+                '../models/mnist_improved_final.h5',
+                # 标准CNN模型
                 '../models/mnist_cnn_best.h5',
                 '../models/mnist_cnn_final.h5',
+                '../models/mnist_improved_cnn_best.h5',
+                '../models/mnist_improved_cnn_final.h5',
+                # 从项目根目录查找
+                'models/mnist_improved_best.h5',
+                'models/mnist_improved_final.h5',
                 'models/mnist_cnn_best.h5',
-                'models/mnist_cnn_final.h5'
+                'models/mnist_cnn_final.h5',
+                # 从src目录查找
+                './models/mnist_improved_best.h5',
+                './models/mnist_improved_final.h5',
+                './models/mnist_cnn_best.h5',
+                './models/mnist_cnn_final.h5',
             ]
+            
+            # 如果以上路径都不存在，尝试查找models目录下的任何.h5文件
+            found_model = False
             for path in default_paths:
                 if os.path.exists(path):
                     self.load_model(path)
+                    found_model = True
                     break
             
-            if self.model is None:
+            # 如果还没找到，尝试自动搜索models目录
+            if not found_model:
+                model_dirs = ['../models', 'models', './models']
+                for model_dir in model_dirs:
+                    if os.path.exists(model_dir):
+                        # 查找所有.h5文件
+                        for file in os.listdir(model_dir):
+                            if file.endswith('.h5') and ('best' in file or 'final' in file):
+                                model_path = os.path.join(model_dir, file)
+                                try:
+                                    self.load_model(model_path)
+                                    found_model = True
+                                    break
+                                except:
+                                    continue
+                    if found_model:
+                        break
+            
+            if not found_model:
                 messagebox.showwarning(
                     "警告",
-                    "未找到训练好的模型！\n请先运行 train.py 训练模型。"
+                    "未找到训练好的模型！\n\n请先运行以下命令之一训练模型：\n"
+                    "- train.py (标准模型)\n"
+                    "- train_improved.py (改进模型)\n\n"
+                    "或者手动指定模型路径：\n"
+                    "python gui.py <模型路径>"
                 )
     
     def load_model(self, model_path):

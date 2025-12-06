@@ -10,8 +10,8 @@ from tensorflow import keras
 import matplotlib.pyplot as plt
 import matplotlib
 import platform
-from data_loader import load_mnist_data, preprocess_data, create_data_augmentation, augment_data_advanced
-from model import create_cnn_model, create_dense_model
+from data_loader import load_mnist_data, preprocess_data, create_data_augmentation
+from model import create_cnn_model, create_dense_model, create_improved_cnn_model
 
 # 配置matplotlib中文字体支持
 def setup_chinese_font():
@@ -112,91 +112,6 @@ def train_model(model, x_train, y_train, x_test, y_test,
     return history
 
 
-def train_model_with_augmentation(model, x_train, y_train, x_test, y_test, 
-                                   epochs=10, batch_size=128, model_name='mnist_model',
-                                   use_augmentation=True, augment_factor=2):
-    """
-    使用数据增强训练模型
-    
-    Args:
-        model: 要训练的模型
-        x_train: 训练图像数据
-        y_train: 训练标签
-        x_test: 测试图像数据
-        y_test: 测试标签
-        epochs: 训练轮数
-        batch_size: 批次大小
-        model_name: 模型保存名称
-        use_augmentation: 是否使用数据增强
-        augment_factor: 数据增强倍数
-    
-    Returns:
-        history: 训练历史记录
-    """
-    os.makedirs('../models', exist_ok=True)
-    
-    # 数据增强
-    if use_augmentation:
-        print("\n应用数据增强...")
-        x_train_aug, y_train_aug = augment_data_advanced(
-            x_train, y_train, augment_factor=augment_factor
-        )
-        print(f"增强后训练集大小: {x_train_aug.shape}")
-    else:
-        x_train_aug, y_train_aug = x_train, y_train
-    
-    # 创建数据增强生成器（实时增强）
-    datagen = create_data_augmentation()
-    train_generator = datagen.flow(x_train_aug, y_train_aug, batch_size=batch_size)
-    
-    # 回调函数
-    callbacks = [
-        keras.callbacks.ModelCheckpoint(
-            f'../models/{model_name}_best.h5',
-            monitor='val_accuracy',
-            save_best_only=True,
-            verbose=1
-        ),
-        keras.callbacks.EarlyStopping(
-            monitor='val_loss',
-            patience=5,
-            restore_best_weights=True,
-            verbose=1
-        ),
-        keras.callbacks.ReduceLROnPlateau(
-            monitor='val_loss',
-            factor=0.5,
-            patience=3,
-            min_lr=0.00001,
-            verbose=1
-        )
-    ]
-    
-    print(f"\n开始训练模型...")
-    print(f"训练轮数: {epochs}")
-    print(f"批次大小: {batch_size}")
-    print(f"训练样本数: {len(x_train_aug)}")
-    print(f"测试样本数: {len(x_test)}")
-    
-    # 计算每个epoch的步数
-    steps_per_epoch = len(x_train_aug) // batch_size
-    
-    # 训练模型（使用生成器进行实时增强）
-    history = model.fit(
-        train_generator,
-        steps_per_epoch=steps_per_epoch,
-        epochs=epochs,
-        validation_data=(x_test, y_test),
-        callbacks=callbacks,
-        verbose=1
-    )
-    
-    model.save(f'../models/{model_name}_final.h5')
-    print(f"\n模型已保存到 ../models/{model_name}_final.h5")
-    
-    return history
-
-
 def plot_training_history(history, save_path='../models/training_history.png'):
     """
     绘制训练历史曲线
@@ -245,10 +160,15 @@ def main():
         x_train, y_train, x_test, y_test
     )
     
-    # 选择模型类型：'cnn' 或 'dense'
-    model_type = 'cnn'  # 可以改为 'dense' 使用全连接网络
+    # 选择模型类型：'cnn', 'improved_cnn' 或 'dense'
+    model_type = 'cnn'  # 可以改为 'improved_cnn' 使用改进的CNN模型，或 'dense' 使用全连接网络
+    use_augmentation = False  # 是否使用数据增强（改进模型建议开启）
     
-    if model_type == 'cnn':
+    if model_type == 'improved_cnn':
+        print("\n使用改进的CNN模型...")
+        model = create_improved_cnn_model()
+        use_augmentation = True  # 改进模型默认使用数据增强
+    elif model_type == 'cnn':
         print("\n使用CNN模型...")
         model = create_cnn_model()
     else:
@@ -258,24 +178,54 @@ def main():
     # 显示模型结构
     model.summary()
     
-    # 选择训练方式：使用数据增强或普通训练
-    use_augmentation = True  # 设置为True使用数据增强，False使用普通训练
-    augment_factor = 2      # 数据增强倍数（生成augment_factor倍的数据）
-    
+    # 训练模型
     if use_augmentation:
-        print("\n使用数据增强训练模型...")
         # 使用数据增强训练
-        history = train_model_with_augmentation(
-            model, x_train, y_train, x_test, y_test,
-            epochs=15,  # 数据增强时可以增加训练轮数
-            batch_size=128,
-            model_name=f'mnist_{model_type}_augmented',
-            use_augmentation=True,
-            augment_factor=augment_factor
+        datagen = create_data_augmentation(
+            rotation_range=10,
+            width_shift_range=0.1,
+            height_shift_range=0.1,
+            zoom_range=0.1,
+            shear_range=0.1,
+            fill_mode='nearest'
         )
+        datagen.fit(x_train)
+        
+        # 更新回调函数以支持更长的训练
+        callbacks = [
+            keras.callbacks.ModelCheckpoint(
+                f'../models/mnist_{model_type}_best.h5',
+                monitor='val_accuracy',
+                save_best_only=True,
+                verbose=1
+            ),
+            keras.callbacks.EarlyStopping(
+                monitor='val_loss',
+                patience=15,
+                restore_best_weights=True,
+                verbose=1
+            ),
+            keras.callbacks.ReduceLROnPlateau(
+                monitor='val_loss',
+                factor=0.2,
+                patience=5,
+                min_lr=0.000001,
+                verbose=1
+            )
+        ]
+        
+        print(f"\n使用数据增强训练模型...")
+        history = model.fit(
+            datagen.flow(x_train, y_train, batch_size=128),
+            steps_per_epoch=len(x_train) // 128,
+            epochs=20,
+            validation_data=(x_test, y_test),
+            callbacks=callbacks,
+            verbose=1
+        )
+        model.save(f'../models/mnist_{model_type}_final.h5')
     else:
-        print("\n使用普通训练（无数据增强）...")
-        # 普通训练
+        # 标准训练
         history = train_model(
             model, x_train, y_train, x_test, y_test,
             epochs=10,
